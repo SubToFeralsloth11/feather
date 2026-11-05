@@ -73,7 +73,7 @@ Needs macOS 13 or later and the Xcode command line tools.
 
 ```sh
 ./build.sh            # builds build/Feather.app
-./build.sh --install  # also copies it to ~/Applications
+./build.sh --install  # also copies it to /Applications
 ```
 
 To regenerate the icon: `swift Resources/make-icon.swift`.

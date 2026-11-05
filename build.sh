@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds Feather.app in ./build. Pass --install to copy it to ~/Applications.
+# Builds Feather.app in ./build. Pass --install to copy it to /Applications.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -16,8 +16,7 @@ codesign --force --sign - "$APP"
 
 echo "Built $APP"
 if [ "${1:-}" = "--install" ]; then
-    mkdir -p ~/Applications
-    rm -rf ~/Applications/Feather.app
-    cp -R "$APP" ~/Applications/
-    echo "Installed to ~/Applications/Feather.app"
+    rm -rf /Applications/Feather.app
+    cp -R "$APP" /Applications/
+    echo "Installed to /Applications/Feather.app"
 fi
