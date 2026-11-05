@@ -153,6 +153,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, WKNav
     private static let reloadID = NSToolbarItem.Identifier("reload")
     private static let addressID = NSToolbarItem.Identifier("address")
     private static let bookmarkID = NSToolbarItem.Identifier("bookmark")
+    private static let passwordID = NSToolbarItem.Identifier("1password")
 
     private func buildToolbar() {
         let toolbar = NSToolbar(identifier: "Feather.toolbar")
@@ -164,7 +165,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, WKNav
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Self.backID, Self.forwardID, Self.reloadID, Self.addressID, Self.bookmarkID]
+        [Self.backID, Self.forwardID, Self.reloadID, Self.addressID, Self.bookmarkID, Self.passwordID]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -200,6 +201,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, WKNav
         case Self.bookmarkID:
             bookmarkItem = button("star", "Bookmark", #selector(toggleBookmark(_:)))
             return bookmarkItem
+        case Self.passwordID:
+            return button("key", "Fill from 1Password", #selector(fillFromOnePassword(_:)))
         case Self.addressID:
             let item = NSToolbarItem(itemIdentifier: id)
             addressField.placeholderString = "Search \(Settings.searchEngine.title) or enter address"
@@ -408,6 +411,90 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, WKNav
         updateAddress()
     }
 
+    // MARK: 1Password
+
+    @objc func fillFromOnePassword(_ sender: Any?) {
+        guard let host = webView?.url?.host else { NSSound.beep(); return }
+        Task { await useOnePassword(host: host, copyCodeOnly: false) }
+    }
+
+    @objc func copyOneTimeCode(_ sender: Any?) {
+        guard let host = webView?.url?.host else { NSSound.beep(); return }
+        Task { await useOnePassword(host: host, copyCodeOnly: true) }
+    }
+
+    private func useOnePassword(host: String, copyCodeOnly: Bool) async {
+        do {
+            let logins = OnePassword.matching(try await OnePassword.logins(), host: host)
+            guard !logins.isEmpty else {
+                showMessage("No 1Password login for \(host)",
+                            "Save a login in 1Password with this site's address and it will appear here.")
+                return
+            }
+            guard let login = logins.count == 1 ? logins[0] : pickLogin(logins) else { return }
+            let credentials = try await OnePassword.credentials(for: login)
+            if copyCodeOnly {
+                guard let code = credentials.oneTimeCode else {
+                    showMessage("No one-time code", "\"\(login.title)\" has no one-time password in 1Password.")
+                    return
+                }
+                copyToClipboard(code)
+                return
+            }
+            // The page may have moved on while 1Password asked for approval; never fill a different site.
+            guard let webView, webView.url?.host == host else { return }
+            let filled = try await OnePassword.fill(credentials, into: webView)
+            if filled.isEmpty {
+                showMessage("No login form found", "There's no visible username, password or code field on this page.")
+            } else if filled.contains("password"), let code = credentials.oneTimeCode {
+                // Like the 1Password extension: have the 2-step code ready to paste on the next page.
+                copyToClipboard(code)
+            }
+        } catch let failure as OnePassword.Failure {
+            if case .notConnected = failure {
+                showMessage("Connect 1Password", failure.localizedDescription, openApp: true)
+            } else {
+                showMessage("1Password", failure.localizedDescription)
+            }
+        } catch {
+            showMessage("1Password", error.localizedDescription)
+        }
+    }
+
+    /// Several logins match: let the user pick one from a menu under the toolbar.
+    private func pickLogin(_ logins: [OnePassword.Login]) -> OnePassword.Login? {
+        let picker = MenuPicker()
+        let menu = NSMenu()
+        for (index, login) in logins.enumerated() {
+            let item = NSMenuItem(title: login.username.isEmpty ? login.title : "\(login.title) — \(login.username)",
+                                  action: #selector(MenuPicker.pick(_:)), keyEquivalent: "")
+            item.tag = index
+            item.target = picker
+            menu.addItem(item)
+        }
+        guard let content = window?.contentView else { return nil }
+        menu.popUp(positioning: nil, at: NSPoint(x: content.bounds.maxX - 260, y: content.bounds.maxY), in: content)
+        return picker.selected.map { logins[$0] }
+    }
+
+    private func copyToClipboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func showMessage(_ title: String, _ detail: String, openApp: Bool = false) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = detail
+        alert.addButton(withTitle: "OK")
+        if openApp { alert.addButton(withTitle: "Open 1Password") }
+        present(alert) { response in
+            if response == .alertSecondButtonReturn {
+                NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/1Password.app"))
+            }
+        }
+    }
+
     override func newWindowForTab(_ sender: Any?) {
         BrowserWindowController.open(url: nil, in: window, isPrivate: isPrivate)
     }
@@ -455,7 +542,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, WKNav
             return currentURL != nil
         case #selector(zoomIn(_:)), #selector(zoomOut(_:)), #selector(actualSize(_:)),
              #selector(forceReload(_:)), #selector(findNext(_:)), #selector(findPrevious(_:)),
-             #selector(showFindBar(_:)):
+             #selector(showFindBar(_:)), #selector(fillFromOnePassword(_:)), #selector(copyOneTimeCode(_:)):
             return webView != nil
         default: return true
         }

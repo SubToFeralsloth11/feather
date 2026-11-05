@@ -113,3 +113,12 @@ final class FindBar: NSView {
 
     override func cancelOperation(_ sender: Any?) { close() }
 }
+
+/// Records which item of a pop-up menu was chosen.
+final class MenuPicker: NSObject {
+    private(set) var selected: Int?
+
+    @objc func pick(_ sender: NSMenuItem) {
+        selected = sender.tag
+    }
+}

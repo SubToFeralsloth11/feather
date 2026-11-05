@@ -54,6 +54,36 @@ enum SelfTest {
         print("== ad blocking")
         check(await adRequestBlocked(), "request to doubleclick.net from another site is blocked")
 
+        print("== Chrome bookmarks import")
+        if ChromeImport.isAvailable {
+            let found = ChromeImport.bookmarks()
+            print("  found \(found.count) bookmarks in \(ChromeImport.profiles().map(\.name))")
+            check(!found.isEmpty, "Chrome bookmarks read")
+            check(Set(found.map(\.url)).count == found.count, "no duplicate URLs")
+            check(found.allSatisfy { !($0.folder ?? []).isEmpty }, "every bookmark keeps its Chrome folder")
+            for folder in Set(found.compactMap { $0.folder?.joined(separator: " / ") }).sorted() {
+                print("    \(folder): \(found.filter { $0.folder?.joined(separator: " / ") == folder }.count)")
+            }
+            check(Store.shared.importBookmarks(found) == found.count, "all imported into an empty store")
+            check(Store.shared.importBookmarks(ChromeImport.bookmarks()) == 0, "importing again adds nothing")
+        } else {
+            print("  Chrome not installed; skipped")
+        }
+
+        print("== 1Password")
+        check(OnePassword.siteDomain("accounts.google.com") == "google.com", "subdomain → site")
+        check(OnePassword.siteDomain("www.bbc.co.uk") == "bbc.co.uk", "two-part suffix kept")
+        let logins = [
+            OnePassword.Login(id: "1", title: "Google", username: "a", hosts: ["google.com"]),
+            OnePassword.Login(id: "2", title: "Gmail", username: "b", hosts: ["accounts.google.com"]),
+            OnePassword.Login(id: "3", title: "Evil", username: "c", hosts: ["google.com.evil.net"]),
+        ]
+        let matched = OnePassword.matching(logins, host: "accounts.google.com").map(\.id)
+        check(matched == ["2", "1"], "matches site logins, exact host first, never look-alikes (\(matched))")
+        check(OnePassword.cliPath != nil, "1Password CLI installed")
+        await checkFill()
+        if CommandLine.arguments.contains("--quick") { return }
+
         print("== tab playing sound")
         let audio = BrowserWindowController.open(url: nil, in: nil, isPrivate: false)
         audio.ensureWebView().loadHTMLString(soundPage, baseURL: URL(string: "https://example.com/"))
@@ -115,6 +145,33 @@ enum SelfTest {
         check(priv.webView?.configuration.websiteDataStore.isPersistent == false, "private tab uses non-persistent storage")
         check(!Store.shared.history.contains { $0.url.contains("example.org") }, "private visit not in history")
         check(Store.shared.history.contains { $0.url.contains("wikipedia.org") }, "normal visit is in history")
+    }
+
+    /// Runs the 1Password fill script on sample login pages (no real 1Password data involved).
+    private static func checkFill() async {
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600),
+                                configuration: Engine.makeConfiguration(isPrivate: true))
+        let credentials = OnePassword.Credentials(username: "me@example.com", password: "hunter2", oneTimeCode: "123456")
+        let pages: [(String, String, [String])] = [
+            ("username + password form", """
+             <input type="search" name="q"><form><input type="email" name="email"><input type="password" name="pw">
+             <input type="password" style="display:none" name="trap"></form>
+             """, ["username", "password"]),
+            ("username-only first step", #"<input type="text" name="identifier" autocomplete="username">"#, ["username"]),
+            ("2-step code page", #"<input type="text" name="otc" autocomplete="one-time-code">"#, ["code"]),
+        ]
+        for (name, form, expected) in pages {
+            let html = "<html><body>\(form)<script>window.events = 0; document.addEventListener('input', () => events++, true);</script></body></html>"
+            webView.loadHTMLString(html, baseURL: URL(string: "https://example.com/"))
+            let deadline = Date().addingTimeInterval(10)
+            repeat { try? await Task.sleep(for: .milliseconds(200)) } while webView.isLoading && Date() < deadline
+            let filled = (try? await OnePassword.fill(credentials, into: webView)) ?? ["error"]
+            let values = (try? await webView.evaluateJavaScript(
+                "[...document.querySelectorAll('input')].map(i => i.name + '=' + i.value).join(' ') + ' events=' + window.events")) as? String ?? ""
+            check(filled == expected, "\(name): filled \(filled) — \(values)")
+            check(!values.contains("trap=hunter2"), "\(name): hidden password field left empty")
+            check(!values.hasSuffix("events=0"), "\(name): page was told about the typing (input events)")
+        }
     }
 
     /// A page that loops a generated, unmuted (silent-sample) WAV through an <audio> element.

@@ -15,7 +15,8 @@ A lightweight macOS web browser, Chrome-style, built to use far less memory.
   look at them.
 - **Built-in ad and tracker blocking.** Ad scripts and trackers are a large share of the memory a
   typical page uses. They're blocked natively by WebKit, so blocking itself costs nothing.
-- Tabs playing audio or video, or using the camera or microphone, are never put to sleep.
+- Tabs playing sound, or using the camera or microphone, are never put to sleep. Muted autoplay
+  videos don't count.
 
 ## Features
 
@@ -30,6 +31,29 @@ Settings live in the **Feather** menu: ad blocking, autoplay blocking, how long 
 tabs sleep, search engine (Google, DuckDuckGo, Bing), "Sleep Background Tabs Now" (⌥⌘S),
 a memory report and Clear Browsing Data.
 
+### Chrome bookmarks
+
+On first launch Feather copies every Chrome bookmark (all profiles, including bookmarks stored in
+your Google account) into the Bookmarks menu, keeping Chrome's folders. Run
+**Bookmarks ▸ Import Bookmarks from Chrome** any time to pick up new ones; nothing is duplicated.
+
+### 1Password
+
+Click the key button in the toolbar (or ⌥⌘\\) to fill the login for the current site from 1Password.
+If the login has a one-time code, the code is copied to the clipboard ready for the next page;
+**Edit ▸ Copy One-Time Code from 1Password** (⇧⌥⌘\\) copies it on its own. If several logins match, pick one
+from the menu that appears. Feather only fills logins saved for the site you're on, and only in the page's
+main frame.
+
+One-time setup:
+
+1. Install the 1Password CLI: `brew install --cask 1password-cli`
+2. In 1Password, open **Settings ▸ Developer** and turn on **Integrate with 1Password CLI**.
+
+1Password then asks for Touch ID or your password the first time Feather uses it.
+
+### Shortcuts
+
 | Shortcut | Action |
 |---|---|
 | ⌘T / ⌘W | New tab / close tab |
@@ -41,6 +65,7 @@ a memory report and Clear Browsing Data.
 | ⌃Tab / ⌃⇧Tab | Next / previous tab |
 | ⌘D | Bookmark page |
 | ⌥⌘S | Sleep all background tabs now |
+| ⌥⌘\\ | Fill login from 1Password |
 
 ## Build and install
 

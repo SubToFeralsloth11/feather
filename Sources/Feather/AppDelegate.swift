@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             self.ready = true
             if SelfTest.isActive { SelfTest.run(); return }
+            self.importChromeBookmarksOnFirstLaunch()
             self.restoreSession()
             for url in self.pendingOpenURLs { self.openExternal(url) }
             self.pendingOpenURLs.removeAll()
@@ -194,6 +195,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Store.shared.clearHistory()
     }
 
+    @objc func importChromeBookmarks(_ sender: Any?) {
+        let found = ChromeImport.bookmarks()
+        let added = Store.shared.importBookmarks(found)
+        let alert = NSAlert()
+        if found.isEmpty {
+            alert.messageText = "No Chrome bookmarks found"
+            alert.informativeText = "Feather looked in \(ChromeImport.chromeDirectory.path)."
+        } else {
+            alert.messageText = added == 0 ? "Bookmarks are already up to date" : "Imported \(added) bookmarks from Chrome"
+            alert.informativeText = "They're in the Bookmarks menu, in the same folders as in Chrome."
+        }
+        alert.runModal()
+    }
+
+    /// Brings Chrome's bookmarks over once, the first time Feather runs with Chrome installed.
+    private func importChromeBookmarksOnFirstLaunch() {
+        let key = "importedChromeBookmarks"
+        guard !UserDefaults.standard.bool(forKey: key), ChromeImport.isAvailable else { return }
+        Store.shared.importBookmarks(ChromeImport.bookmarks())
+        UserDefaults.standard.set(true, forKey: key)
+    }
+
     @objc func clearBrowsingData(_ sender: Any?) {
         let alert = NSAlert()
         alert.messageText = "Clear browsing data?"
@@ -322,6 +345,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item("Find…", #selector(BrowserWindowController.showFindBar(_:)), "f"),
             item("Find Next", #selector(BrowserWindowController.findNext(_:)), "g"),
             item("Find Previous", #selector(BrowserWindowController.findPrevious(_:)), "g", [.command, .shift]),
+            .separator(),
+            item("Fill Login from 1Password", #selector(BrowserWindowController.fillFromOnePassword(_:)), "\\", [.command, .option]),
+            item("Copy One-Time Code from 1Password", #selector(BrowserWindowController.copyOneTimeCode(_:)), "\\", [.command, .option, .shift]),
         ]))
 
         main.addItem(submenu("View", [
@@ -356,6 +382,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         NSApp.mainMenu = main
         refreshSettingsMenu()
+        // Fill the dynamic menus now so their shortcuts (⌘D, ⌘[, ⌘]) work before they are first opened.
+        menuNeedsUpdate(historyMenu)
+        menuNeedsUpdate(bookmarksMenu)
     }
 
     private func refreshSettingsMenu() {
@@ -380,8 +409,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(item("Clear History", #selector(clearHistory(_:)), target: self))
         } else if menu === bookmarksMenu {
             menu.addItem(item("Bookmark This Page", #selector(BrowserWindowController.toggleBookmark(_:)), "d"))
+            menu.addItem(item("Import Bookmarks from Chrome", #selector(importChromeBookmarks(_:)), target: self))
             menu.addItem(.separator())
-            Store.shared.bookmarks.forEach { menu.addItem(pageItem($0)) }
+            addBookmarks(Store.shared.bookmarks, depth: 0, to: menu)
+        }
+    }
+
+    /// Adds bookmarks at `depth` of their folder path, with deeper folders as submenus.
+    private func addBookmarks(_ entries: [PageEntry], depth: Int, to menu: NSMenu) {
+        var folderNames: [String] = []
+        var byFolder: [String: [PageEntry]] = [:]
+        for entry in entries {
+            guard let folder = entry.folder, folder.count > depth else { continue }
+            if byFolder[folder[depth]] == nil { folderNames.append(folder[depth]) }
+            byFolder[folder[depth], default: []].append(entry)
+        }
+        for name in folderNames {
+            let submenu = NSMenu(title: name)
+            addBookmarks(byFolder[name]!, depth: depth + 1, to: submenu)
+            let folderItem = NSMenuItem(title: name, action: nil, keyEquivalent: "")
+            folderItem.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
+            folderItem.submenu = submenu
+            menu.addItem(folderItem)
+        }
+        for entry in entries where (entry.folder?.count ?? 0) <= depth {
+            menu.addItem(pageItem(entry))
         }
     }
 

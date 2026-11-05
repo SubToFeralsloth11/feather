@@ -4,6 +4,8 @@ struct PageEntry: Codable, Equatable {
     var title: String
     var url: String
     var date: Date?
+    /// Folder path for bookmarks, outermost first (e.g. ["Bookmarks bar", "Work"]). nil = top level.
+    var folder: [String]? = nil
 }
 
 struct SessionTab: Codable {
@@ -62,6 +64,16 @@ final class Store {
             bookmarks.append(PageEntry(title: title.isEmpty ? url.absoluteString : title, url: url.absoluteString, date: Date()))
         }
         save(bookmarks, "bookmarks.json")
+    }
+
+    /// Adds bookmarks whose URL isn't saved yet. Returns how many were added.
+    @discardableResult
+    func importBookmarks(_ entries: [PageEntry]) -> Int {
+        var known = Set(bookmarks.map(\.url))
+        let new = entries.filter { known.insert($0.url).inserted }
+        bookmarks.append(contentsOf: new)
+        if !new.isEmpty { save(bookmarks, "bookmarks.json") }
+        return new.count
     }
 
     // MARK: History
