@@ -21,6 +21,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, WKNav
     private var pageTitle = "New Tab"
     private(set) var lastActive = Date()
     private var observations: [NSKeyValueObservation] = []
+    /// Frames currently playing sound, keyed by an id each frame picks (see `Engine.audioScript`).
+    private var audibleFrames = Set<String>()
+
+    var isPlayingSound: Bool { !audibleFrames.isEmpty }
+
+    func setFrame(_ id: String, audible: Bool) {
+        if audible { audibleFrames.insert(id) } else { audibleFrames.remove(id) }
+    }
 
     private let container = NSView()
     private let placeholder = PlaceholderView()
@@ -275,18 +283,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, WKNav
         markAsleep(pendingURL != nil)
     }
 
-    /// Sleeps the tab unless it is showing, playing media or using the camera/microphone.
+    /// Sleeps the tab unless it is showing, playing sound or using the camera/microphone.
     func sleepIfIdle() {
-        guard let webView, !isShowing else { return }
+        guard let webView, !isShowing, !isPlayingSound else { return }
         if webView.cameraCaptureState != .none || webView.microphoneCaptureState != .none { return }
-        webView.requestMediaPlaybackState { [weak self] state in
-            guard let self, state != .playing, !self.isShowing else { return }
-            self.sleep()
-        }
+        sleep()
     }
 
     private func tearDown(_ webView: WKWebView) {
         observations.removeAll()
+        audibleFrames.removeAll()
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil

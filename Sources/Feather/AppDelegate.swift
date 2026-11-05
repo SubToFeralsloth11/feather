@@ -60,12 +60,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sleepTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { _ in
             MainActor.assumeIsolated { self.sleepIdleTabs() }
         }
+        // The self-test drives memory pressure itself, so real system events can't skew its numbers.
+        if SelfTest.isActive { return }
         let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
-        source.setEventHandler {
-            MainActor.assumeIsolated { self.sleepBackgroundTabs(nil) }
+        source.setEventHandler { [unowned source] in
+            let critical = source.data.contains(.critical)
+            MainActor.assumeIsolated { self.handleMemoryPressure(critical: critical) }
         }
         source.resume()
         pressureSource = source
+    }
+
+    /// Low memory: sleep background tabs not looked at for 2 minutes. Critical: sleep every background tab.
+    /// (Many Macs sit at "warning" for long stretches, so warning alone must not reload tabs you just used.)
+    func handleMemoryPressure(critical: Bool) {
+        let cutoff = Date().addingTimeInterval(critical ? 0 : -120)
+        for tab in BrowserWindowController.all where tab.webView != nil && !tab.isShowing && tab.lastActive <= cutoff {
+            tab.sleepIfIdle()
+        }
     }
 
     private var lastSessionSave = Date.distantPast

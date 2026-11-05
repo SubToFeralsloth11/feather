@@ -4,7 +4,40 @@ import WebKit
 /// Shared WebKit setup: one content controller (ad blocking) and the data stores for normal and private tabs.
 @MainActor
 enum Engine {
-    static let contentController = WKUserContentController()
+    static let contentController: WKUserContentController = {
+        let controller = WKUserContentController()
+        let world = WKContentWorld.world(name: "FeatherAudio")
+        controller.addUserScript(WKUserScript(source: audioScript, injectionTime: .atDocumentStart,
+                                              forMainFrameOnly: false, in: world))
+        controller.add(AudioMessages(), contentWorld: world, name: "featherAudio")
+        return controller
+    }()
+
+    /// Reports when a frame starts or stops playing sound, so tabs making noise are never put to sleep.
+    /// Muted autoplay videos (ads, previews, backgrounds) don't count.
+    private static let audioScript = """
+    (() => {
+      const id = Math.random().toString(36).slice(2);
+      const playing = new Set();
+      let last = false;
+      const send = (audible) => {
+        if (audible === last) return;
+        last = audible;
+        window.webkit.messageHandlers.featherAudio.postMessage({ id, audible });
+      };
+      const update = (event) => {
+        const media = event.target;
+        if (!(media instanceof HTMLMediaElement)) return;
+        if (!media.paused && !media.ended && !media.muted && media.volume > 0) playing.add(media);
+        else playing.delete(media);
+        send(playing.size > 0);
+      };
+      for (const type of ['play', 'playing', 'pause', 'ended', 'volumechange', 'emptied']) {
+        document.addEventListener(type, update, true);
+      }
+      window.addEventListener('pagehide', () => { playing.clear(); send(false); });
+    })();
+    """
     private static var blockList: WKContentRuleList?
     private static var privateStore: WKWebsiteDataStore?
 
@@ -98,5 +131,17 @@ enum Engine {
     /// Called when the last private tab closes, so the next private window starts with no cookies.
     static func discardPrivateStore() {
         privateStore = nil
+    }
+}
+
+/// Routes audio reports from pages to the tab that owns the web view.
+@MainActor
+private final class AudioMessages: NSObject, WKScriptMessageHandler {
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any], let id = body["id"] as? String,
+              let audible = body["audible"] as? Bool, let webView = message.webView,
+              let tab = BrowserWindowController.all.first(where: { $0.webView === webView })
+        else { return }
+        tab.setFrame(id, audible: audible)
     }
 }
