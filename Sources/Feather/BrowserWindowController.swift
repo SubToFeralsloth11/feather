@@ -9,7 +9,7 @@ import WebKit
 /// history and scroll position from `interactionState`.
 @MainActor
 final class BrowserWindowController: NSWindowController, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate,
-    NSToolbarDelegate, NSTextFieldDelegate, NSMenuItemValidation
+    NSTextFieldDelegate, NSMenuItemValidation
 {
     static private(set) var all: [BrowserWindowController] = []
     private static var closedTabs: [URL] = []
@@ -35,10 +35,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, WKNav
     private let progressBar = ProgressBar()
     private let findBar = FindBar()
     private let addressField = NSTextField()
-    private var backItem: NSToolbarItem?
-    private var forwardItem: NSToolbarItem?
-    private var reloadItem: NSToolbarItem?
-    private var bookmarkItem: NSToolbarItem?
+    private let backItem = NSButton()
+    private let forwardItem = NSButton()
+    private let reloadItem = NSButton()
+    private let bookmarkItem = NSButton()
 
     var isAsleep: Bool { webView == nil && (pendingURL != nil || savedState != nil) }
 
@@ -68,7 +68,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, WKNav
         super.init(window: window)
         window.delegate = self
         buildContent()
-        buildToolbar()
         showPlaceholder()
     }
 
@@ -124,7 +123,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, WKNav
         findBar.onFind = { [weak self] text, backwards in self?.find(text, backwards: backwards) }
         findBar.onClose = { [weak self] in self?.hideFindBar() }
 
-        let stack = NSStackView(views: [findBar, container])
+        let stack = NSStackView(views: [buildNavBar(), findBar, container])
         stack.orientation = .vertical
         stack.spacing = 0
         stack.alignment = .width
@@ -146,84 +145,46 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, WKNav
         container.setContentHuggingPriority(.defaultLow, for: .vertical)
     }
 
-    // MARK: Toolbar
+    // MARK: Navigation bar
 
-    private static let backID = NSToolbarItem.Identifier("back")
-    private static let forwardID = NSToolbarItem.Identifier("forward")
-    private static let reloadID = NSToolbarItem.Identifier("reload")
-    private static let addressID = NSToolbarItem.Identifier("address")
-    private static let bookmarkID = NSToolbarItem.Identifier("bookmark")
-    private static let passwordID = NSToolbarItem.Identifier("1password")
-
-    private func buildToolbar() {
-        let toolbar = NSToolbar(identifier: "Feather.toolbar")
-        toolbar.delegate = self
-        toolbar.displayMode = .iconOnly
-        toolbar.allowsUserCustomization = false
-        window?.toolbar = toolbar
-        window?.toolbarStyle = .unified
-    }
-
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Self.backID, Self.forwardID, Self.reloadID, Self.addressID, Self.bookmarkID, Self.passwordID]
-    }
-
-    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        toolbarDefaultItemIdentifiers(toolbar)
-    }
-
-    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
-                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem?
-    {
-        func button(_ symbol: String, _ label: String, _ action: Selector) -> NSToolbarItem {
-            let item = NSToolbarItem(itemIdentifier: id)
-            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
-            item.label = label
-            item.toolTip = label
-            item.target = self
-            item.action = action
-            item.isBordered = true
-            item.autovalidates = false
-            return item
+    /// Back, forward, reload, address field, bookmark and 1Password, in a row under the tab bar.
+    /// It lives in the content view rather than an NSToolbar: a toolbar collapsed every item into
+    /// its overflow menu, which hid the address field.
+    private func buildNavBar() -> NSView {
+        func setUp(_ button: NSButton, _ symbol: String, _ label: String, _ action: Selector) -> NSButton {
+            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+            button.imagePosition = .imageOnly
+            button.bezelStyle = .texturedRounded
+            button.isBordered = false
+            button.toolTip = label
+            button.target = self
+            button.action = action
+            button.widthAnchor.constraint(equalToConstant: 28).isActive = true
+            return button
         }
-        switch id {
-        case Self.backID:
-            backItem = button("chevron.left", "Back", #selector(browserBack(_:)))
-            backItem?.isEnabled = false
-            return backItem
-        case Self.forwardID:
-            forwardItem = button("chevron.right", "Forward", #selector(browserForward(_:)))
-            forwardItem?.isEnabled = false
-            return forwardItem
-        case Self.reloadID:
-            reloadItem = button("arrow.clockwise", "Reload", #selector(reloadOrStop(_:)))
-            return reloadItem
-        case Self.bookmarkID:
-            bookmarkItem = button("star", "Bookmark", #selector(toggleBookmark(_:)))
-            return bookmarkItem
-        case Self.passwordID:
-            return button("key", "Fill from 1Password", #selector(fillFromOnePassword(_:)))
-        case Self.addressID:
-            let item = NSToolbarItem(itemIdentifier: id)
-            addressField.placeholderString = "Search \(Settings.searchEngine.title) or enter address"
-            addressField.bezelStyle = .roundedBezel
-            addressField.font = .systemFont(ofSize: 13)
-            addressField.lineBreakMode = .byTruncatingTail
-            addressField.cell?.isScrollable = true
-            addressField.cell?.wraps = false
-            addressField.delegate = self
-            addressField.translatesAutoresizingMaskIntoConstraints = false
-            addressField.widthAnchor.constraint(greaterThanOrEqualToConstant: 240).isActive = true
-            let preferred = addressField.widthAnchor.constraint(equalToConstant: 4000)
-            preferred.priority = .defaultLow
-            preferred.isActive = true
-            item.view = addressField
-            item.visibilityPriority = .high
-            item.label = "Address"
-            return item
-        default:
-            return nil
-        }
+        setUp(backItem, "chevron.left", "Back", #selector(browserBack(_:))).isEnabled = false
+        setUp(forwardItem, "chevron.right", "Forward", #selector(browserForward(_:))).isEnabled = false
+        _ = setUp(reloadItem, "arrow.clockwise", "Reload", #selector(reloadOrStop(_:)))
+        _ = setUp(bookmarkItem, "star", "Bookmark", #selector(toggleBookmark(_:)))
+        let password = setUp(NSButton(), "key", "Fill from 1Password", #selector(fillFromOnePassword(_:)))
+
+        addressField.placeholderString = "Search \(Settings.searchEngine.title) or enter address"
+        addressField.bezelStyle = .roundedBezel
+        addressField.font = .systemFont(ofSize: 13)
+        addressField.lineBreakMode = .byTruncatingTail
+        addressField.cell?.isScrollable = true
+        addressField.cell?.wraps = false
+        addressField.isEditable = true
+        addressField.isSelectable = true
+        addressField.delegate = self
+        addressField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let row = NSStackView(views: [backItem, forwardItem, reloadItem, addressField, bookmarkItem, password])
+        row.orientation = .horizontal
+        row.spacing = 4
+        row.edgeInsets = NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
+        row.heightAnchor.constraint(equalToConstant: 34).isActive = true
+        return row
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
@@ -349,10 +310,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, WKNav
                 MainActor.assumeIsolated { self?.updateProgress() }
             },
             webView.observe(\.canGoBack) { [weak self] webView, _ in
-                MainActor.assumeIsolated { self?.backItem?.isEnabled = webView.canGoBack }
+                MainActor.assumeIsolated { self?.backItem.isEnabled = webView.canGoBack }
             },
             webView.observe(\.canGoForward) { [weak self] webView, _ in
-                MainActor.assumeIsolated { self?.forwardItem?.isEnabled = webView.canGoForward }
+                MainActor.assumeIsolated { self?.forwardItem.isEnabled = webView.canGoForward }
             },
         ]
     }
@@ -363,13 +324,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, WKNav
             addressField.stringValue = url?.absoluteString ?? ""
         }
         let marked = url.map { Store.shared.isBookmarked($0) } ?? false
-        bookmarkItem?.image = NSImage(systemSymbolName: marked ? "star.fill" : "star", accessibilityDescription: "Bookmark")
+        bookmarkItem.image = NSImage(systemSymbolName: marked ? "star.fill" : "star", accessibilityDescription: "Bookmark")
     }
 
     private func updateProgress() {
         guard let webView else { return }
         progressBar.progress = webView.isLoading ? max(0.08, webView.estimatedProgress) : 0
-        reloadItem?.image = NSImage(systemSymbolName: webView.isLoading ? "xmark" : "arrow.clockwise",
+        reloadItem.image = NSImage(systemSymbolName: webView.isLoading ? "xmark" : "arrow.clockwise",
                                     accessibilityDescription: webView.isLoading ? "Stop" : "Reload")
     }
 
@@ -461,7 +422,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, WKNav
         }
     }
 
-    /// Several logins match: let the user pick one from a menu under the toolbar.
+    /// Several logins match: let the user pick one from a menu under the address bar.
     private func pickLogin(_ logins: [OnePassword.Login]) -> OnePassword.Login? {
         let picker = MenuPicker()
         let menu = NSMenu()
@@ -496,7 +457,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, WKNav
     }
 
     override func newWindowForTab(_ sender: Any?) {
-        BrowserWindowController.open(url: nil, in: window, isPrivate: isPrivate)
+        let tab = BrowserWindowController.open(url: Settings.newTabURL, in: window, isPrivate: isPrivate)
+        tab.focusAddressBar()
     }
 
     @objc func reopenClosedTab(_ sender: Any?) {

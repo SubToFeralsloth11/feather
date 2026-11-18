@@ -27,9 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if SelfTest.isActive { SelfTest.run(); return }
             self.importChromeBookmarksOnFirstLaunch()
             self.restoreSession()
+            let host = BrowserWindowController.all.last(where: { !$0.isPrivate })?.window
+            BrowserWindowController.open(url: Settings.homePage, in: host, isPrivate: false)
             for url in self.pendingOpenURLs { self.openExternal(url) }
             self.pendingOpenURLs.removeAll()
-            if BrowserWindowController.all.isEmpty { self.newWindow(nil) }
         }
     }
 
@@ -132,6 +133,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             var selectedTab: BrowserWindowController?
             for (index, entry) in saved.tabs.enumerated() {
                 guard let url = URL(string: entry.url) else { continue }
+                // A fresh home tab opens on every launch; don't pile up the previous ones.
+                if url.host == Settings.homePage.host && url.path == Settings.homePage.path { continue }
                 let tab = BrowserWindowController.open(url: url, title: entry.title, in: host, isPrivate: false,
                                                        select: false, lazy: true)
                 if host == nil {
@@ -147,11 +150,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Actions
 
     @objc func newWindow(_ sender: Any?) {
-        BrowserWindowController.open(url: nil, in: nil, isPrivate: false)
+        BrowserWindowController.open(url: Settings.homePage, in: nil, isPrivate: false)
     }
 
     @objc func newPrivateWindow(_ sender: Any?) {
-        BrowserWindowController.open(url: nil, in: nil, isPrivate: true)
+        BrowserWindowController.open(url: Settings.newTabURL, in: nil, isPrivate: true).focusAddressBar()
     }
 
     /// Fallback for ⌘T when no browser window is open.

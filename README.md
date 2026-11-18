@@ -27,6 +27,9 @@ downloads to ~/Downloads, full-screen video, file uploads, camera and microphone
 right-click → Inspect Element, ⌘-click opens a link in a background tab, session restore,
 and it can be set as the default browser.
 
+On launch (and for each new window) Feather opens the SharePoint **Students - Home** page
+(`Settings.homePage`). New tabs (⌘T) open Google, or whichever search engine is chosen.
+
 Settings live in the **Feather** menu: ad blocking, autoplay blocking, how long before background
 tabs sleep, search engine (Google, DuckDuckGo, Bing), "Sleep Background Tabs Now" (⌥⌘S),
 a memory report and Clear Browsing Data.

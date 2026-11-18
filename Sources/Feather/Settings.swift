@@ -49,6 +49,18 @@ enum Settings {
         set { defaults.set(newValue.rawValue, forKey: "searchEngine") }
     }
 
+    /// Opened when Feather launches and for new windows: the SharePoint "Students - Home" bookmark.
+    static let homePage = URL(string: "https://qedu.sharepoint.com/sites/2053/students/SitePages/Home.aspx")!
+
+    /// What a new tab shows: the search engine's home page, like Chrome.
+    static var newTabURL: URL {
+        switch searchEngine {
+        case .google: return URL(string: "https://www.google.com/")!
+        case .duckduckgo: return URL(string: "https://duckduckgo.com/")!
+        case .bing: return URL(string: "https://www.bing.com/")!
+        }
+    }
+
     /// Turns address-bar input into a URL: a real address when it looks like one, otherwise a search.
     static func url(fromInput input: String) -> URL? {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
